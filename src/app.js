@@ -1,18 +1,14 @@
 const express = require('express');
-const logger = require('./middleware/logger');
-const errorHandler = require('./middleware/errorHandler');
-const routes = require('./routes');
-
 const app = express();
 
 // Middleware
 app.use(express.json());
-app.use(logger);
 
 // Routes
-app.use('/api', routes);
+const postsRoutes = require('./routes/posts');
+const authRoutes = require('./routes/auth');
 
-// Error handler (last)
-app.use(errorHandler);
+app.use('/api/posts', postsRoutes);
+app.use('/api/auth', authRoutes);
 
 module.exports = app;

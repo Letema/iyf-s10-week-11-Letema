@@ -1,73 +1,151 @@
-const store = require('../data/store');
+// src/controllers/postsController.js
+const Post = require('../models/Post');
 
-// --- UPDATED FOR DAY 3 ---
-const getAllPosts = (req, res) => {
-    let result = [...store.posts];
-    const { author, search, sort } = req.query;
+// Get all posts
+const getAllPosts = async (req, res, next) => {
+    try {
+        const { author, search, sort, page = 1, limit = 10 } = req.query;
+        
+        // Build query
+        let query = {};
+        
+        if (author) {
+            query.author = new RegExp(author, 'i');
+        }
+        
+        if (search) {
+            query.$text = { $search: search };
+        }
+        
+        // Build sort
+        let sortOption = { createdAt: -1 };  // Default: newest first
+        
+        if (sort === 'oldest') {
+            sortOption = { createdAt: 1 };
+        } else if (sort === 'popular') {
+            sortOption = { likes: -1 };
+        }
+        
+        // Pagination
+        const skip = (page - 1) * limit;
+        
+        const posts = await Post.find(query)
+            .sort(sortOption)
+            .skip(skip)
+            .limit(parseInt(limit));
+        
+        const total = await Post.countDocuments(query);
+        
+        res.json({
+            posts,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total,
+                pages: Math.ceil(total / limit)
+            }
+        });
+        
+    } catch (error) {
+        next(error);
+    }
+};
 
-    // 1. Filter by author (?author=john)
-    if (author) {
-        result = result.filter(post => 
-            post.author.toLowerCase().includes(author.toLowerCase())
+// Get single post
+const getPostById = async (req, res, next) => {
+    try {
+        const post = await Post.findById(req.params.id);
+        
+        if (!post) {
+            return res.status(404).json({ error: 'Post not found' });
+        }
+        
+        res.json(post);
+    } catch (error) {
+        // Handle invalid ObjectId
+        if (error.name === 'CastError') {
+            return res.status(400).json({ error: 'Invalid post ID' });
+        }
+        next(error);
+    }
+};
+
+// Create post
+const createPost = async (req, res, next) => {
+    try {
+        const { title, content, author, tags } = req.body;
+        
+        const post = new Post({
+            title,
+            content,
+            author,
+            tags
+        });
+        
+        await post.save();
+        
+        res.status(201).json(post);
+    } catch (error) {
+        // Handle validation errors
+        if (error.name === 'ValidationError') {
+            const messages = Object.values(error.errors).map(e => e.message);
+            return res.status(400).json({ errors: messages });
+        }
+        next(error);
+    }
+};
+
+// Update post
+const updatePost = async (req, res, next) => {
+    try {
+        const { title, content, tags } = req.body;
+        
+        const post = await Post.findByIdAndUpdate(
+            req.params.id,
+            { title, content, tags },
+            { new: true, runValidators: true }
         );
+        
+        if (!post) {
+            return res.status(404).json({ error: 'Post not found' });
+        }
+        
+        res.json(post);
+    } catch (error) {
+        next(error);
     }
+};
 
-    // 2. Search in title (?search=node)
-    if (search) {
-        result = result.filter(post => 
-            post.title.toLowerCase().includes(search.toLowerCase())
-        );
+// Delete post
+const deletePost = async (req, res, next) => {
+    try {
+        const post = await Post.findByIdAndDelete(req.params.id);
+        
+        if (!post) {
+            return res.status(404).json({ error: 'Post not found' });
+        }
+        
+        res.status(204).send();
+    } catch (error) {
+        next(error);
     }
+};
 
-    // 3. Sorting (?sort=newest)
-    if (sort === 'newest') {
-        result.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+// Like post
+const likePost = async (req, res, next) => {
+    try {
+        const post = await Post.findById(req.params.id);
+        
+        if (!post) {
+            return res.status(404).json({ error: 'Post not found' });
+        }
+        
+        await post.like();  // Using instance method
+        
+        res.json(post);
+    } catch (error) {
+        next(error);
     }
-
-    res.json(result);
-};
-
-// --- KEEP THESE AS THEY WERE ---
-const getPostById = (req, res) => {
-    const post = store.posts.find(p => p.id === parseInt(req.params.id));
-    if (!post) return res.status(404).json({ error: 'Post not found' });
-    res.json(post);
-};
-
-const createPost = (req, res) => {
-    const { title, content, author } = req.body;
-    const newPost = {
-        id: store.nextId++,
-        title, content, author,
-        createdAt: new Date().toISOString(),
-        likes: 0
-    };
-    store.posts.push(newPost);
-    res.status(201).json(newPost);
-};
-
-const updatePost = (req, res) => {
-    const id = parseInt(req.params.id);
-    const postIndex = store.posts.findIndex(p => p.id === id);
-    if (postIndex === -1) return res.status(404).json({ error: 'Post not found' });
-    
-    const { title, content } = req.body;
-    store.posts[postIndex] = {
-        ...store.posts[postIndex],
-        title: title || store.posts[postIndex].title,
-        content: content || store.posts[postIndex].content,
-        updatedAt: new Date().toISOString()
-    };
-    res.json(store.posts[postIndex]);
-};
-
-const deletePost = (req, res) => {
-    const id = parseInt(req.params.id);
-    const postIndex = store.posts.findIndex(p => p.id === id);
-    if (postIndex === -1) return res.status(404).json({ error: 'Post not found' });
-    
-    store.posts.splice(postIndex, 1);
-    res.status(204).send(); 
 };
 
 module.exports = {
@@ -75,5 +153,6 @@ module.exports = {
     getPostById,
     createPost,
     updatePost,
-    deletePost
+    deletePost,
+    likePost
 };
